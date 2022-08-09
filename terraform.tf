@@ -1,63 +1,77 @@
-provider "azurerm" {
-  features {}
-subscription_id = var.subscription_id
-client_id = var.client_id
-client_secret = var.client_secret
-tenant_id = var.tenant_id
-}
-
-resource "azurerm_resource_group" "main" {
-  name     = "terraformtest"
-  location = "Central India"
-}
+data "azurerm_resource_group" "main" {
+  name     = "${var.rgName}"
+  }
 
 resource "azurerm_virtual_network" "main" {
-  name                = "tftest-network"
-  address_space       = ["10.0.0.0/22"]
-  location            = azurerm_resource_group.main.location
-  resource_group_name = azurerm_resource_group.main.name
+  name                = "${var.prefix}-network"
+  address_space       = ["${var.address_space}"]
+  location            = "${var.region}"
+  resource_group_name = "${data.azurerm_resource_group.main.name}"
 }
 
 resource "azurerm_subnet" "internal" {
-  name                 = "internal"
-  resource_group_name  = azurerm_resource_group.main.name
-  virtual_network_name = azurerm_virtual_network.main.name
-  address_prefixes     = ["10.0.2.0/24"]
+  name                 = "${var.prefix}-subnet"
+  resource_group_name  = "${data.azurerm_resource_group.main.name}"
+  virtual_network_name = "${azurerm_virtual_network.main.name}"
+  address_prefixes     = ["${var.subnet_prefix}"]
 }
 
+resource "azurerm_public_ip" "main" {
+  name                = "${var.prefix}-pip"
+  location            = "${var.region}"
+  resource_group_name = "${data.azurerm_resource_group.main.name}"
+  allocation_method   = "Dynamic"
+}
 resource "azurerm_network_interface" "main" {
-  name                = "tftest-nic"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
+  name                = "${var.prefix}-nic"
+  location            = "${var.region}"
+  resource_group_name = "${data.azurerm_resource_group.main.name}"
 
   ip_configuration {
-    name                          = "internal"
-    subnet_id                     = azurerm_subnet.internal.id
+    name                          = "${var.prefix}-ipconfiguration"
+    subnet_id                     = "${azurerm_subnet.internal.id}"
     private_ip_address_allocation = "Dynamic"
+    public_ip_address_id          = "${azurerm_public_ip.main.id}"
   }
 }
+resource "azurerm_virtual_machine" "main" {
+  name                  = "${var.prefix}-azure-vm"
+  location              = "${var.region}"
+  resource_group_name   = "${data.azurerm_resource_group.main.name}"
+  network_interface_ids = ["${azurerm_network_interface.main.id}"]
+  vm_size               = "${var.vmSize}"
 
-resource "azurerm_linux_virtual_machine" "main" {
-  name                            = "tftest-vm"
-  resource_group_name             = azurerm_resource_group.main.name
-  location                        = azurerm_resource_group.main.location
-  size                            = "Standard_D2s_v3"
-  admin_username                  = "tftest"
-  admin_password                  = "Megantha$1212"
-  disable_password_authentication = false
-  network_interface_ids = [
-    azurerm_network_interface.main.id,
-  ]
+  # Uncomment this line to delete the OS disk automatically when deleting the VM
+   delete_os_disk_on_termination = true
 
-  source_image_reference {
-    publisher = "Canonical"
-    offer     = "UbuntuServer"
-    sku       = "18.04-LTS"
-    version   = "latest"
+
+  # Uncomment this line to delete the data disks automatically when deleting the VM
+   delete_data_disks_on_termination = true
+
+  storage_image_reference {
+    publisher = "${var.image_publisher}"
+    offer     = "${var.image_offer}"
+    sku       = "${var.image_sku}"
+    version   = "${var.image_version}"
   }
-
-  os_disk {
-    storage_account_type = "Standard_LRS"
-    caching              = "ReadWrite"
+  storage_os_disk {
+    name              = "${var.prefix}-osdisk"
+    caching           = "ReadWrite"
+    create_option     = "FromImage"
+    managed_disk_type = "Standard_LRS"
+  }
+  os_profile {
+    computer_name  = "${var.hostname}"
+    admin_username = "${var.admin_username}"
+  }
+  os_profile_linux_config {
+    disable_password_authentication = true
+    ssh_keys{
+      path="/home/${var.admin_username}/.ssh/authorized_keys"
+      key_data="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCvGIAe+yvgiY/y18jO25+FYVTqLXRdbBYn3VrT3ttHeRwK1vKyYZY3bKiPy5eTP6mHAgXe6uHlgHU4ulFcgdvebevgAYomPxJokwuaf+t/3W4WbbFUZWlPCR5lQAwgTSlGtycmsMwUFMYHAPrIhe3J/V0W4f5HRPj38ktCktFNbO3wMsw7dg/7Jn+mMC54Lg3vPJBufN/aGgUe8yt/qMWjKT/NeA8xke+JjvEKhU1gCjOTMFQiB9AoScXnUgtDs8wjI7nJTaDLkS5MPn0WYUit8zwH+0I40bgqEK7us5xenh2POfLWgdyXZ6TDrFr1QshFQTsRTv04XA1D3vzIuyM1GXEbO8pUOO49bVsMhWdGl+wrqHLmKjFLchMjCgJPHXAMBIrbEYnDw1GzeeFeVeeiFkK7P+iF24BcF1AD7I0xELlaBYeFQ6jtWB10vpF2b926KRC/7WlYSS0MRn9+Kr9eWD5C8INoVwOwFgdfEdoouQ8ehbDW3LyIMMS4LlRhf5U= generated-by-azure"
+    }
+ }
+  tags = {
+     environment = "staging"
   }
 }
